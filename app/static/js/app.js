@@ -104,8 +104,26 @@
   let committedBuffer = "";
   let partialBuffer = "";
   let detectedLiveLang = null;
+  let finalTimeoutTimer = null; // Fallback timer for finalization
 
   // Helpers
+  function clearFinalTimeout() {
+    if (finalTimeoutTimer) {
+      clearTimeout(finalTimeoutTimer);
+      finalTimeoutTimer = null;
+    }
+  }
+
+  function scheduleFinalTimeout(timeoutMs = 15000) {
+    clearFinalTimeout();
+    finalTimeoutTimer = setTimeout(() => {
+      if (isStopping) {
+        showToast("Finalization timed out. Recording stopped.", "error");
+        forceStopLocalRecording();
+      }
+    }, timeoutMs);
+  }
+
   function showToast(message, variant = "info") {
     const toast = document.createElement("div");
     toast.className = `toast ${variant === "success" ? "toast-success" : variant === "error" ? "toast-error" : ""}`;
@@ -631,6 +649,7 @@
         if (msg.detected_language) detectedLiveLang = msg.detected_language;
         renderLiveTranscript();
       } else if (msg.type === "final") {
+        clearFinalTimeout();
         isStopping = false;
         isRecording = false;
         stopTimer();
@@ -702,6 +721,7 @@
   }
 
   function forceStopLocalRecording() {
+    clearFinalTimeout();
     isRecording = false;
     isStopping = false;
     if (reconnectTimer) {
@@ -758,6 +778,7 @@
     }
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "stop" }));
+      scheduleFinalTimeout();
     } else {
       forceStopLocalRecording();
       setBanner(liveStatusBanner, "Disconnected before final pass could run.", "error");
