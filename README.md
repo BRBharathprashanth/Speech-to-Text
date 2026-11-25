@@ -1,3 +1,13 @@
+---
+title: Speech to Text
+emoji: 🎙️
+colorFrom: blue
+colorTo: indigo
+sdk: gradio
+app_file: app.py
+pinned: false
+---
+
 # Speech to Text — Multilingual Real-Time ASR Web Application
 
 A self-hosted, real-time multilingual Speech-to-Text web application supporting **English**, **Hindi (हिन्दी)**, and **mixed Hindi-English (Hinglish)** speech using **Faster-Whisper**, **FastAPI**, **WebSockets**, **AudioWorklet (16 kHz mono PCM)**, and **PostgreSQL 16**.
