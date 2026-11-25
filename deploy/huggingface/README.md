@@ -20,5 +20,6 @@ pinned: false
    - **Variable**: `WHISPER_COMPUTE_TYPE` = `int8`
    - **Variable**: `HF_HOME` = `/models/hf`
    - **Variable**: `PORT` = `8001`
+   - **Variable**: `ALLOWED_WS_ORIGINS` = `https://<your-hf-username>-<your-space-name>.hf.space`
 4. Push this repository to the Space remote with the YAML frontmatter above at the top of `README.md`.
 5. Wait for the Docker build & startup, then verify `/health`, `/health/db`, `/docs`, file upload, CRUD, and `wss://` WebSocket streaming.

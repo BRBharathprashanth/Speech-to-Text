@@ -67,10 +67,33 @@ Speech-to-Text/
 5. **Reconnection Limitation**: Rolling buffers reside in server RAM during an active session. If a connection drops briefly (`<= 30 s`), the client reconnects with exponential backoff and resumes the same `session_id`. If the server restarts or the session expires, missing audio cannot be recovered and the UI informs the user to restart recording.
 
 ## Model Caching & Memory Notes
-- **Native Windows**: `HF_HOME=D:\AI-Models\huggingface`
-- **Docker Container**: Model weights (`small` `int8`) are baked into `/models/hf` during `docker build`, with `HF_HOME=/models/hf` at runtime. Never bind-mount an empty host directory over `/models/hf`.
+- **Native Windows (example path)**: `HF_HOME=D:\AI-Models\huggingface` (example local Windows path; set to any writable directory on your machine).
+- **Docker Container**: Only the Faster-Whisper `small` (`int8`) model weights are baked into `/models/hf` during `docker build`, with `HF_HOME=/models/hf` at runtime. Never bind-mount an empty host directory over `/models/hf`. If you switch `WHISPER_MODEL=medium`, it will download at first container startup.
 - **Memory**: Faster-Whisper `small` (`int8` on CPU) typically uses **~1.5–2.0 GB RAM** under active inference. Do not deploy on 512 MB RAM instances.
 - **Model Switching**: Change `WHISPER_MODEL=small` or `WHISPER_MODEL=medium` via environment variables only.
+- **Stop-Recording Timeout**: On the frontend, clicking **Stop Recording** starts a **15-second fallback timeout** (`scheduleFinalTimeout(15000)` in `app/static/js/app.js`). If the server's `final` WebSocket message arrives first, the timer is cleared; if it does not arrive within 15 seconds, the UI stops local capture and displays a timeout notification.
+
+## Environment Variables
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `APP_NAME` | `Speech to Text` | Application title |
+| `APP_VERSION` | `1.0.0` | Application version |
+| `APP_ENV` | `development` | Environment (`development` / `production`) |
+| `PORT` | `8001` | HTTP/WebSocket server port |
+| `DATABASE_URL` | `postgresql://stt_user:stt_password@localhost:5432/speech_to_text_db` | PostgreSQL connection string (`postgres://` auto-normalized to `postgresql://`) |
+| `WHISPER_MODEL` | `small` | Faster-Whisper model size (`small` baked in Docker; `medium` downloads on first start) |
+| `WHISPER_DEVICE` | `cpu` | Inference device (`cpu`) |
+| `WHISPER_COMPUTE_TYPE` | `int8` | CTranslate2 compute precision (`int8`) |
+| `HF_HOME` | `D:\AI-Models\huggingface` | Hugging Face model cache directory (`/models/hf` in Docker) |
+| `MAX_UPLOAD_MB` | `25` | Maximum audio upload size in MB (1–200) |
+| `MAX_SESSION_SECONDS` | `600` | Maximum live WebSocket recording duration in seconds |
+| `MAX_CONCURRENT_SESSIONS` | `3` | Maximum simultaneous active WebSocket sessions |
+| `FINAL_FULL_PASS_MAX_SEC` | `60` | Max duration (s) for full-audio final pass before tail-stitching |
+| `MAX_WS_FRAME_BYTES` | `65536` | Maximum binary WebSocket audio frame size in bytes |
+| `ALLOWED_WS_ORIGINS` | `""` | Comma-separated allowed WebSocket `Origin` URLs (empty = match request `Host`) |
+| `LOG_DIR` | `./logs` | Directory for structured JSON logs |
+| `RATE_LIMIT_REQUESTS` | `120` | Max `/api/*` requests per client IP per window |
+| `RATE_LIMIT_WINDOW_SEC` | `60` | Rate-limiter sliding window in seconds |
 
 ## Setup & Running
 
@@ -134,6 +157,14 @@ Place real 16 kHz (or standard PCM) `.wav` recordings in `tests/audio/`:
 - `tests/audio/hi.wav` — Hindi speech sample
 - `tests/audio/hinglish.wav` — Mixed Hindi-English speech sample
 
+### Measured Results (`small` vs `medium`)
+| Sample | Model | Detected Lang | `script_mix` | Latency (s) | WER / Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `en.wav` | `small` | `[FILL: lang]` | `[FILL: mix]` | `[FILL: sec]` | `[FILL: transcript / WER notes]` |
+| `hi.wav` | `small` | `[FILL: lang]` | `[FILL: mix]` | `[FILL: sec]` | `[FILL: transcript / WER notes]` |
+| `hinglish.wav` | `small` | `[FILL: lang]` | `[FILL: mix]` | `[FILL: sec]` | `[FILL: transcript / WER notes]` |
+| `hinglish.wav` | `medium` | `[FILL: lang]` | `[FILL: mix]` | `[FILL: sec]` | `[FILL: transcript / WER notes]` |
+
 ### Browser Microphone Manual Verification (Chrome / Edge)
 1. Open `http://localhost:8001` (or your HTTPS cloud URL) in Chrome or Edge.
 2. Confirm the header shows `App OK • Model (small): ready` and `DB: Connected`.
@@ -144,6 +175,7 @@ Place real 16 kHz (or standard PCM) `.wav` recordings in `tests/audio/`:
 ## Cloud Deployment (Hugging Face Spaces + Neon PostgreSQL)
 - **Resource Fit**: Faster-Whisper `small` (`int8`) uses ~1.5–2.0 GB RAM under active inference. Hugging Face Spaces **CPU Basic (Free, 16 GB RAM, 2 vCPU)** meets this requirement without paid tiers (unlike 512 MB tiers).
 - **Database**: Pair with a free-tier managed PostgreSQL provider such as **Neon** (`sslmode=require`), configured via the `DATABASE_URL` Space Secret.
+- **Privacy Qualifier**: When deployed on Hugging Face Spaces, audio is processed on Hugging Face's container infrastructure (not your local machine); only the resulting transcript text and metadata are stored in Neon PostgreSQL.
 - **Configuration**: See `deploy/huggingface/README.md` for the required Space YAML frontmatter (`sdk: docker`, `app_port: 8001`) and environment variables.
 - **Known Free-Tier Limitation**: Free Hugging Face Spaces sleep after inactivity, which drops active WebSocket connections and causes a cold-start delay on the next request.
 
