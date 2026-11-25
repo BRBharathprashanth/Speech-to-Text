@@ -61,6 +61,7 @@ with gr.Blocks(title="Speech to Text") as demo:
     )
 
 app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
+print(f"[diagnostic] app.py loaded; __name__={__name__}", flush=True)
 
 
 def _report_zerogpu_startup() -> None:
@@ -72,7 +73,9 @@ def _report_zerogpu_startup() -> None:
 
 
 if __name__ == "__main__":
+    print("[diagnostic] entered __main__", flush=True)
     _run_migrations_with_retry()
     _report_zerogpu_startup()
-    port = int(os.environ.get("PORT", "7860"))
+    port = int(os.environ.get("APP_PORT") or "7860")
     uvicorn.run(app, host="0.0.0.0", port=port)
+
