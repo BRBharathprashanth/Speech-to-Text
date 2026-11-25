@@ -1,0 +1,47 @@
+# Python & virtual environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Logs & temporary files
+logs/
+*.log
+tmp/
+temp/
+uploads/
+
+# Model files & caches
+models/
+hf_cache/
+*.bin
+*.safetensors
+*.onnx
+*.pt
+*.pth
+
+# Private audio recordings
+tests/audio/*.wav
+tests/audio/*.mp3
+tests/audio/*.m4a
+tests/audio/*.flac
+tests/audio/*.ogg
+tests/audio/*.webm
+!tests/audio/.gitkeep
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/

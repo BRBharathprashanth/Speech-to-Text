@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: speech_to_text_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-speech_to_text_db}
+      POSTGRES_USER: ${POSTGRES_USER:-stt_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stt_local_dev_pw}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stt_user} -d ${POSTGRES_DB:-speech_to_text_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: speech_to_text_web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      PORT: ${PORT:-8001}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-stt_user}:${POSTGRES_PASSWORD:-stt_local_dev_pw}@db:5432/${POSTGRES_DB:-speech_to_text_db}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      HF_HOME: /models/hf
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      MAX_SESSION_SECONDS: ${MAX_SESSION_SECONDS:-600}
+      MAX_CONCURRENT_SESSIONS: ${MAX_CONCURRENT_SESSIONS:-3}
+      FINAL_FULL_PASS_MAX_SEC: ${FINAL_FULL_PASS_MAX_SEC:-60}
+      ALLOWED_WS_ORIGINS: ${ALLOWED_WS_ORIGINS:-http://localhost:8001,http://127.0.0.1:8001}
+      LOG_DIR: /app/logs
+    ports:
+      - "8001:8001"
+
+volumes:
+  postgres_data:
+    name: speech_to_text_postgres_data

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ app_name }} — Multilingual Real-Time ASR</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body data-max-upload-mb="{{ max_upload_mb }}" data-max-session-seconds="{{ max_session_seconds }}">
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="topbar-brand">
+        <div class="brand-icon" aria-hidden="true">STT</div>
+        <div>
+          <h1 class="brand-title">{{ app_name }}</h1>
+          <p class="brand-subtitle">Self-Hosted Faster-Whisper • Hindi, English &amp; Hinglish</p>
+        </div>
+      </div>
+
+      <div class="topbar-status">
+        <span id="app-health-pill" class="status-pill status-neutral">
+          <span class="dot"></span>
+          <span id="app-health-text">Checking app...</span>
+        </span>
+        <span id="db-health-pill" class="status-pill status-neutral">
+          <span class="dot"></span>
+          <span id="db-health-text">Checking DB...</span>
+        </span>
+        <a href="/docs" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">API Docs</a>
+        <button id="theme-toggle" type="button" class="btn btn-ghost btn-sm" aria-label="Toggle color theme">
+          Dark Mode
+        </button>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <!-- Stats Row -->
+      <section class="stats-grid" aria-label="Transcription statistics">
+        <article class="stat-card">
+          <span class="stat-label">Total Transcriptions</span>
+          <strong id="stat-total" class="stat-value">0</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Hindi (Devanagari)</span>
+          <strong id="stat-hindi" class="stat-value">0</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">English (Latin)</span>
+          <strong id="stat-english" class="stat-value">0</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Mixed (Hinglish)</span>
+          <strong id="stat-mixed" class="stat-value">0</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Other</span>
+          <strong id="stat-other" class="stat-value">0</strong>
+        </article>
+      </section>
+
+      <!-- Workspace Two-Column Row -->
+      <section class="workspace-grid">
+        <!-- Live Recording Panel -->
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <h2>Live Microphone Transcription</h2>
+              <p class="muted">16 kHz mono PCM streaming via AudioWorklet &amp; WebSocket</p>
+            </div>
+            <div class="recording-meta">
+              <span id="rec-indicator" class="rec-indicator rec-idle">
+                <span class="rec-dot"></span>
+                <span id="rec-state-label">Idle</span>
+              </span>
+              <span id="rec-timer" class="timer-badge">00:00</span>
+            </div>
+          </div>
+
+          <div class="meta-bar">
+            <span id="mic-permission-badge" class="badge badge-neutral">Mic: Not Checked</span>
+            <span id="ws-status-badge" class="badge badge-neutral">WS: Disconnected</span>
+            <span id="live-lang-badge" class="badge badge-neutral">Lang: Auto</span>
+          </div>
+
+          <div class="controls-row">
+            <button id="btn-start-rec" type="button" class="btn btn-primary">Start Recording</button>
+            <button id="btn-stop-rec" type="button" class="btn btn-danger" disabled>Stop Recording</button>
+            <button id="btn-clear-rec" type="button" class="btn btn-secondary">Clear</button>
+            <button id="btn-save-rec" type="button" class="btn btn-success">Save</button>
+          </div>
+
+          <div id="live-processing-status" class="status-banner hidden" role="status"></div>
+
+          <label for="live-transcript-box" class="field-label">Live Transcript</label>
+          <div id="live-transcript-preview" class="transcript-live-box" aria-live="polite">
+            <span id="committed-text" class="committed-text"></span>
+            <span id="partial-text" class="partial-text"></span>
+            <span id="live-placeholder" class="placeholder-text">Speak into your microphone or type/paste text below after stopping to save...</span>
+          </div>
+
+          <label for="live-transcript-editor" class="field-label sr-only">Editable transcript</label>
+          <textarea
+            id="live-transcript-editor"
+            class="textarea hidden"
+            rows="3"
+            placeholder="Edit final transcript before saving..."
+          ></textarea>
+        </article>
+
+        <!-- File Upload Panel -->
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <h2>Audio File Upload</h2>
+              <p class="muted">Supported: WAV, MP3, M4A, FLAC, OGG, WebM (max {{ max_upload_mb }} MB)</p>
+            </div>
+          </div>
+
+          <form id="upload-form" class="upload-form">
+            <label id="dropzone" class="dropzone" for="audio-file-input">
+              <input
+                id="audio-file-input"
+                type="file"
+                accept=".wav,.mp3,.m4a,.flac,.ogg,.webm,audio/*"
+                class="file-input-hidden"
+              />
+              <span class="dropzone-title">Choose an audio file or drag &amp; drop</span>
+              <span id="selected-file-label" class="dropzone-subtitle">No file selected</span>
+            </label>
+
+            <div class="progress-wrapper hidden" id="upload-progress-wrap">
+              <div class="progress-track">
+                <div id="upload-progress-bar" class="progress-fill" style="width: 0%"></div>
+              </div>
+              <span id="upload-progress-text" class="progress-label">0%</span>
+            </div>
+
+            <div id="upload-status-banner" class="status-banner hidden" role="status"></div>
+
+            <div class="controls-row">
+              <button id="btn-upload-submit" type="submit" class="btn btn-primary" disabled>
+                Upload &amp; Transcribe
+              </button>
+              <button id="btn-upload-clear" type="button" class="btn btn-secondary">Reset</button>
+            </div>
+          </form>
+
+          <div id="upload-result-card" class="result-box hidden">
+            <div class="result-meta" id="upload-result-meta"></div>
+            <p id="upload-result-text" class="result-text"></p>
+          </div>
+        </article>
+      </section>
+
+      <!-- History Dashboard -->
+      <section class="card">
+        <div class="card-header history-header">
+          <div>
+            <h2>Transcription History</h2>
+            <p class="muted">Stored in PostgreSQL with automatic Devanagari / Latin script mix classification</p>
+          </div>
+
+          <div class="history-filters">
+            <input
+              id="search-input"
+              type="search"
+              class="input"
+              placeholder="Search text, filename, language..."
+              aria-label="Search transcriptions"
+            />
+            <select id="mix-filter" class="select" aria-label="Filter by script mix">
+              <option value="">All Script Mixes</option>
+              <option value="hindi">Hindi</option>
+              <option value="english">English</option>
+              <option value="mixed">Mixed (Hinglish)</option>
+              <option value="other">Other</option>
+            </select>
+            <button id="btn-refresh-history" type="button" class="btn btn-secondary">Refresh</button>
+          </div>
+        </div>
+
+        <div id="history-loading" class="empty-state hidden">Loading transcriptions...</div>
+        <div id="history-error" class="status-banner status-error hidden" role="alert"></div>
+        <div id="history-empty" class="empty-state hidden">
+          No transcription records found. Record live audio or upload an audio file to get started.
+        </div>
+
+        <div class="table-responsive" id="history-table-wrap">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Transcription</th>
+                <th>Language</th>
+                <th>Script Mix</th>
+                <th>Duration</th>
+                <th>Created (UTC)</th>
+                <th>Updated (UTC)</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="pagination-bar">
+          <span id="pagination-summary" class="muted">Showing 0 records</span>
+          <div class="pagination-controls">
+            <button id="btn-prev-page" type="button" class="btn btn-secondary btn-sm" disabled>Previous</button>
+            <span id="page-indicator" class="page-indicator">Page 1 / 1</span>
+            <button id="btn-next-page" type="button" class="btn btn-secondary btn-sm" disabled>Next</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- View / Edit Modal -->
+  <div id="detail-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">Transcription Details</h3>
+        <button id="modal-close" type="button" class="btn btn-ghost btn-sm" aria-label="Close modal">Close</button>
+      </div>
+      <div id="modal-meta" class="meta-bar"></div>
+      <div id="modal-view-body" class="modal-text-body"></div>
+      <textarea id="modal-edit-textarea" class="textarea hidden" rows="6"></textarea>
+      <div class="modal-actions">
+        <button id="modal-btn-copy" type="button" class="btn btn-secondary">Copy</button>
+        <button id="modal-btn-edit" type="button" class="btn btn-primary">Edit</button>
+        <button id="modal-btn-save" type="button" class="btn btn-success hidden">Save</button>
+        <button id="modal-btn-cancel" type="button" class="btn btn-secondary hidden">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <div id="delete-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+    <div class="modal-backdrop" id="delete-modal-backdrop"></div>
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h3 id="delete-modal-title">Delete Transcription</h3>
+      </div>
+      <p id="delete-modal-desc" class="muted">Are you sure you want to permanently delete this transcription record?</p>
+      <div class="modal-actions">
+        <button id="delete-btn-cancel" type="button" class="btn btn-secondary">Cancel</button>
+        <button id="delete-btn-confirm" type="button" class="btn btn-danger">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
