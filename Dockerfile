@@ -35,6 +35,8 @@ COPY scripts/entrypoint.sh ./scripts/entrypoint.sh
 
 RUN sed -i 's/\r$//' /app/scripts/entrypoint.sh \
     && chmod +x /app/scripts/entrypoint.sh \
+    && chmod -R a+rX /models/hf \
+    && chmod -R a+rwX /app/logs \
     && chown -R appuser:appuser /app
 
 USER appuser

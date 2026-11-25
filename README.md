@@ -127,3 +127,28 @@ pytest -m "not slow" -v
 # Slow real-audio tests (requires en.wav, hi.wav, hinglish.wav in tests/audio/)
 pytest -m slow -v -s
 ```
+
+### Real-Audio Accuracy Tests (`tests/audio/`)
+Place real 16 kHz (or standard PCM) `.wav` recordings in `tests/audio/`:
+- `tests/audio/en.wav` — English speech sample
+- `tests/audio/hi.wav` — Hindi speech sample
+- `tests/audio/hinglish.wav` — Mixed Hindi-English speech sample
+
+### Browser Microphone Manual Verification (Chrome / Edge)
+1. Open `http://localhost:8001` (or your HTTPS cloud URL) in Chrome or Edge.
+2. Confirm the header shows `App OK • Model (small): ready` and `DB: Connected`.
+3. Click **Start Recording** and grant microphone permission when prompted.
+4. Speak a sentence; verify `WS: Connected`, live partial updates appear, and the timer increments.
+5. Click **Stop Recording**; verify the final transcript appears, saves to PostgreSQL, and shows up in **Transcription History** and **Statistics**.
+
+## Cloud Deployment (Hugging Face Spaces + Neon PostgreSQL)
+- **Resource Fit**: Faster-Whisper `small` (`int8`) uses ~1.5–2.0 GB RAM under active inference. Hugging Face Spaces **CPU Basic (Free, 16 GB RAM, 2 vCPU)** meets this requirement without paid tiers (unlike 512 MB tiers).
+- **Database**: Pair with a free-tier managed PostgreSQL provider such as **Neon** (`sslmode=require`), configured via the `DATABASE_URL` Space Secret.
+- **Configuration**: See `deploy/huggingface/README.md` for the required Space YAML frontmatter (`sdk: docker`, `app_port: 8001`) and environment variables.
+- **Known Free-Tier Limitation**: Free Hugging Face Spaces sleep after inactivity, which drops active WebSocket connections and causes a cold-start delay on the next request.
+
+## Troubleshooting
+- **Model still loading on startup**: Wait a few seconds and refresh `/health` until `model_status` transitions from `loading` to `ready`.
+- **Microphone button fails**: Browsers require `https://` or `http://localhost` for `navigator.mediaDevices.getUserMedia`.
+- **Database connection refused**: Ensure `docker compose up -d db` is running and `DATABASE_URL` matches `.env`.
+
