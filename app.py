@@ -105,20 +105,20 @@ def _report_zerogpu_startup() -> None:
 if __name__ == "__main__":
     print("[diagnostic] entered __main__", flush=True)
 
-    print("[diagnostic] starting Alembic migrations", flush=True)
-    _run_migrations_with_retry()
-    print("[diagnostic] Alembic migrations completed", flush=True)
-
     print("[diagnostic] invoking ZeroGPU startup", flush=True)
     try:
         _report_zerogpu_startup()
         print("[diagnostic] ZeroGPU startup completed", flush=True)
     except Exception:
         import traceback
-
+        
         print("[diagnostic] ZeroGPU startup failed", flush=True)
         traceback.print_exc()
         raise
+
+    print("[diagnostic] starting Alembic migrations", flush=True)
+    _run_migrations_with_retry()
+    print("[diagnostic] Alembic migrations completed", flush=True)
 
     port = int(os.environ.get("APP_PORT") or "7860")
     print(f"[diagnostic] starting Uvicorn on port {port}", flush=True)
