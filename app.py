@@ -16,6 +16,7 @@ if not os.environ.get("LOG_DIR") or os.environ["LOG_DIR"].startswith("D:"):
 os.makedirs(os.environ["HF_HOME"], exist_ok=True)
 os.makedirs(os.environ["LOG_DIR"], exist_ok=True)
 
+import spaces
 import gradio as gr
 import uvicorn
 
@@ -38,6 +39,12 @@ def _run_migrations_with_retry(max_attempts: int = 10, delay_sec: float = 2.0) -
     raise RuntimeError(f"Alembic migrations failed after {max_attempts} attempts.")
 
 
+@spaces.GPU
+def _zerogpu_compatibility_check():
+    """Satisfy Hugging Face ZeroGPU startup detection."""
+    return None
+
+
 with gr.Blocks(title="Speech to Text") as demo:
     gr.Markdown(
         "# Speech to Text\n"
@@ -46,10 +53,26 @@ with gr.Blocks(title="Speech to Text") as demo:
         "- Swagger Docs: `/docs`\n"
         "- Health: `/health` and `/health/db`"
     )
+    zerogpu_button = gr.Button(visible=False)
+    zerogpu_button.click(
+        fn=_zerogpu_compatibility_check,
+        inputs=[],
+        outputs=[],
+    )
 
 app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
 
+
+def _report_zerogpu_startup() -> None:
+    """Explicitly report registered GPU handlers to Hugging Face ZeroGPU."""
+    from spaces.zero import startup
+
+    startup()
+    print("[zerogpu] startup report sent", flush=True)
+
+
 if __name__ == "__main__":
     _run_migrations_with_retry()
+    _report_zerogpu_startup()
     port = int(os.environ.get("PORT", "7860"))
     uvicorn.run(app, host="0.0.0.0", port=port)
