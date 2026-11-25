@@ -1,3 +1,4 @@
+
 """Hugging Face Spaces (Gradio SDK) entrypoint wrapping the FastAPI + WebSocket app."""
 
 from __future__ import annotations
@@ -11,8 +12,10 @@ from pathlib import Path
 # Ensure Linux-safe cache and log directories on Hugging Face Spaces.
 if not os.environ.get("HF_HOME") or os.environ["HF_HOME"].startswith("D:"):
     os.environ["HF_HOME"] = "/tmp/hf"
+
 if not os.environ.get("LOG_DIR") or os.environ["LOG_DIR"].startswith("D:"):
     os.environ["LOG_DIR"] = "/tmp/logs"
+
 os.makedirs(os.environ["HF_HOME"], exist_ok=True)
 os.makedirs(os.environ["LOG_DIR"], exist_ok=True)
 
@@ -23,20 +26,40 @@ import uvicorn
 from app.main import app as fastapi_app
 
 
-def _run_migrations_with_retry(max_attempts: int = 10, delay_sec: float = 2.0) -> None:
-    """Apply Alembic migrations before starting Uvicorn (handles Neon cold starts)."""
+def _run_migrations_with_retry(
+    max_attempts: int = 10,
+    delay_sec: float = 2.0,
+) -> None:
+    """Apply Alembic migrations before starting Uvicorn."""
     project_root = str(Path(__file__).resolve().parent)
+
     for attempt in range(1, max_attempts + 1):
+        print(
+            f"[diagnostic] migration attempt {attempt}/{max_attempts}",
+            flush=True,
+        )
+
         result = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
             cwd=project_root,
             check=False,
         )
+
         if result.returncode == 0:
             return
+
+        print(
+            f"[diagnostic] migration attempt {attempt} failed "
+            f"with exit code {result.returncode}",
+            flush=True,
+        )
+
         if attempt < max_attempts:
             time.sleep(delay_sec)
-    raise RuntimeError(f"Alembic migrations failed after {max_attempts} attempts.")
+
+    raise RuntimeError(
+        f"Alembic migrations failed after {max_attempts} attempts."
+    )
 
 
 @spaces.GPU
@@ -48,11 +71,13 @@ def _zerogpu_compatibility_check():
 with gr.Blocks(title="Speech to Text") as demo:
     gr.Markdown(
         "# Speech to Text\n"
-        "The full FastAPI dashboard, REST API, and WebSocket streaming UI are served at `/`.\n\n"
+        "The full FastAPI dashboard, REST API, and WebSocket streaming UI "
+        "are served at `/`.\n\n"
         "- Dashboard: `/`\n"
         "- Swagger Docs: `/docs`\n"
         "- Health: `/health` and `/health/db`"
     )
+
     zerogpu_button = gr.Button(visible=False)
     zerogpu_button.click(
         fn=_zerogpu_compatibility_check,
@@ -60,8 +85,13 @@ with gr.Blocks(title="Speech to Text") as demo:
         outputs=[],
     )
 
+
 app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
-print(f"[diagnostic] app.py loaded; __name__={__name__}", flush=True)
+
+print(
+    f"[diagnostic] app.py loaded; __name__={__name__}",
+    flush=True,
+)
 
 
 def _report_zerogpu_startup() -> None:
@@ -74,8 +104,23 @@ def _report_zerogpu_startup() -> None:
 
 if __name__ == "__main__":
     print("[diagnostic] entered __main__", flush=True)
-    _run_migrations_with_retry()
-    _report_zerogpu_startup()
-    port = int(os.environ.get("APP_PORT") or "7860")
-    uvicorn.run(app, host="0.0.0.0", port=port)
 
+    print("[diagnostic] starting Alembic migrations", flush=True)
+    _run_migrations_with_retry()
+    print("[diagnostic] Alembic migrations completed", flush=True)
+
+    print("[diagnostic] invoking ZeroGPU startup", flush=True)
+    try:
+        _report_zerogpu_startup()
+        print("[diagnostic] ZeroGPU startup completed", flush=True)
+    except Exception:
+        import traceback
+
+        print("[diagnostic] ZeroGPU startup failed", flush=True)
+        traceback.print_exc()
+        raise
+
+    port = int(os.environ.get("APP_PORT") or "7860")
+    print(f"[diagnostic] starting Uvicorn on port {port}", flush=True)
+
+    uvicorn.run(app, host="0.0.0.0", port=port)
