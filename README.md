@@ -8,93 +8,215 @@ app_file: app.py
 pinned: false
 ---
 
-# Speech to Text — Multilingual Real-Time ASR Web Application
+# Speech-to-Text — Multilingual Real-Time ASR Web Application
 
-A self-hosted, real-time multilingual Speech-to-Text web application supporting **English**, **Hindi (हिन्दी)**, and **mixed Hindi-English (Hinglish)** speech using **Faster-Whisper**, **FastAPI**, **WebSockets**, **AudioWorklet (16 kHz mono PCM)**, and **PostgreSQL 16**.
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Hugging%20Face%20Spaces-blue?logo=huggingface)](https://bharathprashanth-speech-to-text.hf.space)
+[![Swagger Docs](https://img.shields.io/badge/API%20Docs-Swagger%20UI-green?logo=fastapi)](https://bharathprashanth-speech-to-text.hf.space/docs)
+[![GitHub](https://img.shields.io/badge/GitHub-BRBharathprashanth-181717?logo=github)](https://github.com/BRBharathprashanth)
 
-## Assessment Requirements & Privacy Guarantees
-- **100% Self-Hosted Recognition**: Uses open-source Faster-Whisper (`small` / `medium`, CPU `int8`). User audio never leaves the server for transcription.
-- **Real-Time Streaming**: Captures microphone audio via `AudioWorklet` (with `ScriptProcessorNode` fallback), downsamples to 16 kHz mono signed 16-bit PCM, and streams binary frames over `WS /ws/transcribe`.
-- **File Upload Transcription**: `POST /api/transcribe` accepts WAV, MP3, M4A, FLAC, OGG, and WebM up to `MAX_UPLOAD_MB` (25 MB default), validates stream integrity with `ffprobe`, normalizes via `ffmpeg`, and persists results.
-- **Complete PostgreSQL CRUD Dashboard**: Create, Read, Search/Filter/Paginate, Update (re-evaluating `script_mix` and `updated_at`), Delete with confirmation, and live DB statistics.
-- **Light & Dark Themes**: Responsive SaaS-style vanilla HTML/CSS/JS UI using safe DOM rendering (`textContent`, no untrusted `innerHTML`).
+A self-hosted, real-time multilingual Speech-to-Text web application built with **Faster-Whisper**, **FastAPI**, **WebSockets**, **AudioWorklet**, **PostgreSQL**, and **Gradio**, deployed on **Hugging Face Spaces**.
+
+It supports live microphone streaming and audio file uploads across **English**, **Hindi (हिन्दी)**, and **Hinglish (mixed Hindi-English)**, with persistent transcription management, search/filtering, and live analytics.
+
+- **Live Application:** https://bharathprashanth-speech-to-text.hf.space
+- **Interactive API Docs (Swagger):** https://bharathprashanth-speech-to-text.hf.space/docs
+- **GitHub Profile:** https://github.com/BRBharathprashanth
+
+---
+
+## Key Features
+
+- **Real-Time Microphone Streaming (`WS /ws/transcribe`)**: Captures browser audio via `AudioWorklet` (with `ScriptProcessorNode` fallback), downsamples to **16 kHz mono signed 16-bit PCM**, and streams ~200 ms binary frames over WebSockets for near-real-time partial and final transcripts.
+- **Rolling Window & Overlap Deduplication**: Decodes rolling audio buffers every ~1.5 s (`beam_size=1`, `vad_filter=True`) and commits segments at ~20 s using word-level boundary overlap merging (`2.0 s` overlap tail) to prevent mid-word splits and duplicate phrases.
+- **Audio File Upload Transcription (`POST /api/transcribe`)**: Accepts **WAV, MP3, M4A, FLAC, OGG, and WebM** files (up to `MAX_UPLOAD_MB`, 25 MB default), validates stream integrity with `ffprobe`, normalizes audio to 16 kHz mono WAV via `ffmpeg`, and runs a final transcription pass (`beam_size=3`).
+- **Full PostgreSQL CRUD & Analytics Dashboard**: Create, read, search, filter (by script mix and language), paginate, update (recalculating `script_mix` and `updated_at`), and delete transcription records, alongside live database statistics (`GET /api/stats`).
+- **Resilient Production Safeguards**: Thread-safe serialized model inference, sliding-window rate limiting on `/api/*`, WebSocket origin validation, concurrent session limits, idempotent `session_id` persistence, structured JSON logging with credential redaction, and Alembic migrations.
+- **Responsive Light & Dark UI**: Vanilla HTML/CSS/JS dashboard using safe DOM updates (`textContent`) and automatic WebSocket reconnection with exponential backoff.
+
+---
+
+## Supported Languages
+
+| Language | Code | Script | Handling |
+| :--- | :--- | :--- | :--- |
+| **English** | `en` | Latin | Automatic detection via Faster-Whisper (`language=None`, `task="transcribe"`) |
+| **Hindi (हिन्दी)** | `hi` | Devanagari | Automatic detection with Devanagari script support |
+| **Hinglish (Mixed Hindi-English)** | `hi-en` | Devanagari + Latin | Guided with a bilingual initial prompt; deterministic `script_mix` classification (`hindi`, `english`, `mixed`, `other`) computed from saved text |
+
+> **Note on Code-Switching**: Whisper evaluates one dominant language per decoding window. Mixed Hindi-English speech can produce Devanagari, Romanized Hindi, or mixed-script output depending on phrase dominance and model size (`small` vs. `medium`).
+
+---
 
 ## Technology Stack
-- **Backend**: Python 3.11, FastAPI, Uvicorn, Pydantic v2, Pydantic Settings
-- **Speech Recognition**: Faster-Whisper (`ctranslate2` int8), FFmpeg / FFprobe
-- **Database**: PostgreSQL 16, SQLAlchemy 2, Alembic (`psycopg2-binary`)
-- **Frontend**: HTML5, CSS3, Vanilla JavaScript, Web Audio API (`AudioWorklet`), WebSockets
-- **Infrastructure & Testing**: Docker, Docker Compose, Pytest, FastAPI `TestClient`
 
-## Project Structure
+| Layer | Technologies |
+| :--- | :--- |
+| **Backend & API** | Python 3.11, FastAPI, Uvicorn, Pydantic v2, Pydantic Settings |
+| **Speech Recognition** | Faster-Whisper (`ctranslate2` `int8`), FFmpeg / FFprobe |
+| **Real-Time Audio** | WebSockets, Web Audio API (`AudioWorklet` 16 kHz mono `pcm_s16le` + `ScriptProcessorNode` fallback) |
+| **Database & Migrations** | PostgreSQL 16 (Neon in cloud / Docker locally), SQLAlchemy 2, Alembic (`psycopg2-binary`) |
+| **Frontend & Hosting Wrapper** | Vanilla HTML5 / CSS3 / JavaScript, Jinja2 templates, Gradio (`gr.mount_gradio_app` with `ssr_mode=False`) |
+| **Deployment & Testing** | Hugging Face Spaces, Docker, Docker Compose, Pytest, FastAPI `TestClient` |
+
+---
+
+## System Architecture
+
+```text
+Browser (AudioWorklet / File Upload / Dashboard UI)
+   │
+   ├── HTTP/REST (/api/transcribe, /api/transcriptions, /api/stats, /health)
+   └── WebSocket (WS /ws/transcribe — 16 kHz mono PCM frames)
+          │
+          ▼
+   FastAPI Application (app/main.py)
+   ├── Rate Limiter & Origin Validation
+   ├── AudioService (ffprobe validation + ffmpeg 16 kHz mono WAV normalization)
+   ├── StreamingService (rolling buffer + word-level overlap deduplication)
+   ├── SpeechService (singleton Faster-Whisper with serialized inference lock)
+   └── TranscriptionService (CRUD, stats, deterministic script_mix classifier)
+          │
+          ▼
+   PostgreSQL 16 (SQLAlchemy 2 + Alembic migrations)
+
+   Mounted inside Hugging Face Spaces entrypoint (app.py):
+   FastAPI app + Gradio Blocks mounted at /gradio (ssr_mode=False)
+```
+
+### Project Structure
+
 ```text
 Speech-to-Text/
+├── app.py                           # Hugging Face Spaces entrypoint (FastAPI + Gradio mount + migrations)
 ├── app/
-│   ├── main.py                      # FastAPI app factory, lifespan, rate limiter
+│   ├── main.py                      # FastAPI app factory, lifespan, rate limiter, error handlers
 │   ├── api/
-│   │   ├── routes.py                # HTTP endpoints (/health, /api/transcribe, CRUD, stats)
-│   │   └── websocket.py             # WS /ws/transcribe with origin & limit enforcement
+│   │   ├── routes.py                # REST endpoints (/, /health, /api/transcribe, CRUD, stats, languages)
+│   │   └── websocket.py             # WS /ws/transcribe with origin & session limit enforcement
 │   ├── core/
-│   │   ├── config.py                # Typed Pydantic Settings & postgres:// normalization
+│   │   ├── config.py                # Typed Pydantic Settings & postgres:// URL normalization
 │   │   └── logging.py               # Structured JSON logging with credential redaction
 │   ├── database/
 │   │   ├── connection.py            # SQLAlchemy 2 engine (pool_pre_ping=True) & sessions
-│   │   ├── models.py                # Transcription ORM table & indexes
-│   │   └── migrations/              # Alembic migrations
+│   │   ├── models.py                # Transcription ORM model & indexes
+│   │   └── migrations/              # Alembic migration scripts
 │   ├── schemas/
-│   │   └── transcription.py         # Request/response Pydantic models
+│   │   └── transcription.py         # Pydantic request/response schemas
 │   ├── services/
 │   │   ├── speech_service.py        # Faster-Whisper singleton, warm-up, serialized inference
-│   │   ├── audio_service.py         # Upload validation, sanitization, FFmpeg 16kHz mono WAV
+│   │   ├── audio_service.py         # Upload validation, sanitization, FFmpeg 16 kHz mono WAV
 │   │   ├── transcription_service.py # CRUD, stats, Devanagari/Latin script_mix classifier
 │   │   └── streaming_service.py     # Rolling buffer, overlap deduplication, final pass
-│   ├── templates/index.html         # Dashboard HTML
+│   ├── templates/index.html         # Dashboard HTML template
 │   └── static/
 │       ├── css/style.css            # Light/dark theme styles
 │       └── js/
 │           ├── app.js               # Dashboard logic, WS reconnect, XHR upload progress
 │           └── pcm-worklet.js       # AudioWorklet 16 kHz mono int16 PCM resampler
-├── tests/                           # Fast unit/DB/CRUD/WS tests & slow real-audio tests
+├── deploy/huggingface/README.md     # Alternate Docker SDK Space configuration reference
 ├── scripts/entrypoint.sh            # Container DB wait + Alembic upgrade + Uvicorn startup
-├── Dockerfile                       # Non-root python:3.11-slim + FFmpeg + baked small model
-├── docker-compose.yml               # PostgreSQL 16 (named volume) + FastAPI web service
+├── tests/                           # Unit, DB, CRUD, WebSocket, and slow real-audio tests
+├── Dockerfile                       # Non-root python:3.11-slim + FFmpeg + pre-cached small model
+├── docker-compose.yml               # PostgreSQL 16 + FastAPI web service
 ├── alembic.ini
 ├── requirements.txt
 └── requirements-dev.txt
 ```
 
-## Near-Real-Time Audio Architecture
-1. **Browser Capture (`pcm-worklet.js`)**: Captures microphone input at the device sample rate, mixes down to mono, linearly resamples to **16,000 Hz**, quantizes to **signed 16-bit PCM (`pcm_s16le`)**, and emits ~200 ms frames (6,400 bytes). Falls back to `ScriptProcessorNode` if `AudioWorklet` is unavailable.
-2. **Session Handshake**: Client generates a UUID `session_id` and sends `{"type": "start", "session_id": "...", "sample_rate": 16000, "channels": 1}` over `WS /ws/transcribe`.
-3. **Rolling Window & Overlap Deduplication**:
-   - Server buffers PCM in memory and decodes partial hypotheses every ~1.5 s (`beam_size=1`, `vad_filter=True`, `condition_on_previous_text=False`, `language=None`).
-   - Committed text and temporary partial text are kept separate so each partial update replaces only the temporary span.
-   - At ~20 s, segments are committed via word-level boundary overlap merging, retaining a 2.0 s overlap tail in the rolling buffer to avoid mid-word splits.
-4. **Final Pass**:
-   - Recordings `<= FINAL_FULL_PASS_MAX_SEC` (60 s) run a full-audio final pass (`beam_size=3`).
-   - Longer recordings drop the full raw buffer after 60 s to bound memory and stitch the final unprocessed tail onto committed segments.
-   - Saved once in PostgreSQL using a unique constraint on `session_id` for idempotency.
-5. **Reconnection Limitation**: Rolling buffers reside in server RAM during an active session. If a connection drops briefly (`<= 30 s`), the client reconnects with exponential backoff and resumes the same `session_id`. If the server restarts or the session expires, missing audio cannot be recovered and the UI informs the user to restart recording.
+---
 
-## Model Caching & Memory Notes
-- **Native Windows (example path)**: `HF_HOME=D:\AI-Models\huggingface` (example local Windows path; set to any writable directory on your machine).
-- **Docker Container**: Only the Faster-Whisper `small` (`int8`) model weights are baked into `/models/hf` during `docker build`, with `HF_HOME=/models/hf` at runtime. Never bind-mount an empty host directory over `/models/hf`. If you switch `WHISPER_MODEL=medium`, it will download at first container startup.
-- **Memory**: Faster-Whisper `small` (`int8` on CPU) typically uses **~1.5–2.0 GB RAM** under active inference. Do not deploy on 512 MB RAM instances.
-- **Model Switching**: Change `WHISPER_MODEL=small` or `WHISPER_MODEL=medium` via environment variables only.
-- **Stop-Recording Timeout**: On the frontend, clicking **Stop Recording** starts a **15-second fallback timeout** (`scheduleFinalTimeout(15000)` in `app/static/js/app.js`). If the server's `final` WebSocket message arrives first, the timer is cleared; if it does not arrive within 15 seconds, the UI stops local capture and displays a timeout notification.
+## Installation & Local Setup
+
+### Prerequisites
+- **Python 3.11**
+- **PostgreSQL 16** (local installation or via Docker)
+- **FFmpeg / FFprobe** installed and available on `PATH`
+- *(Optional)* **Docker & Docker Compose** for containerized setup
+
+### 1. Clone & Configure Environment
+
+```powershell
+git clone https://github.com/BRBharathprashanth/Speech-to-Text.git
+cd Speech-to-Text
+Copy-Item .env.example .env
+```
+
+Update `.env` with your PostgreSQL `DATABASE_URL` and local `HF_HOME` cache path if needed.
+
+### 2. Native Setup (Windows PowerShell)
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+alembic upgrade head
+uvicorn app.main:app --host 0.0.0.0 --port 8001
+```
+
+- **Web Dashboard:** `http://localhost:8001`
+- **Swagger API Docs:** `http://localhost:8001/docs`
+
+> **Tip:** If you do not have a local PostgreSQL 16 server running, you can start only the database container with `docker compose up -d db` before running `alembic upgrade head`.
+
+### 3. Optional: Docker Compose
+
+```powershell
+docker compose up -d --build
+```
+
+- **Web Dashboard:** `http://localhost:8001`
+- **Swagger API Docs:** `http://localhost:8001/docs`
+- **PostgreSQL 16:** bound to `127.0.0.1:5432` with persistent volume `speech_to_text_postgres_data`
+
+### Running Tests
+
+```powershell
+# Fast suite (stubbed Whisper model, isolated SQLite test DB by default)
+pytest -m "not slow" -v
+
+# Slow real-audio tests (requires en.wav, hi.wav, hinglish.wav in tests/audio/)
+pytest -m slow -v -s
+```
+
+---
+
+## API Documentation
+
+Interactive OpenAPI / Swagger documentation is served automatically by FastAPI:
+- **Live Space:** https://bharathprashanth-speech-to-text.hf.space/docs
+- **Local:** `http://localhost:8001/docs`
+
+| Method | Endpoint | Purpose |
+| :--- | :--- | :--- |
+| `GET` | `/` | Frontend Speech-to-Text dashboard |
+| `GET` | `/health` | Application & Faster-Whisper model status |
+| `GET` | `/health/db` | PostgreSQL connectivity check (`SELECT 1`) |
+| `POST` | `/api/transcribe` | Upload audio file, convert via FFmpeg, transcribe, persist |
+| `POST` | `/api/transcriptions` | Create/save transcription (idempotent on `session_id`) |
+| `GET` | `/api/transcriptions` | Paginated search & filter (`q`, `script_mix`, `language`, `page`, `page_size`) |
+| `GET` | `/api/transcriptions/{id}` | Retrieve a single transcription by ID |
+| `PUT` | `/api/transcriptions/{id}` | Update transcription text (recalculates `script_mix` & `updated_at`) |
+| `DELETE` | `/api/transcriptions/{id}` | Delete a transcription by ID |
+| `GET` | `/api/stats` | Live counts grouped by `script_mix` (`total`, `hindi`, `english`, `mixed`, `other`) |
+| `GET` | `/api/languages` | Supported languages & code-switching metadata |
+| `WS` | `/ws/transcribe` | Real-time 16 kHz mono PCM audio streaming |
+
+---
 
 ## Environment Variables
+
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `APP_NAME` | `Speech to Text` | Application title |
 | `APP_VERSION` | `1.0.0` | Application version |
 | `APP_ENV` | `development` | Environment (`development` / `production`) |
-| `PORT` | `8001` | HTTP/WebSocket server port |
-| `DATABASE_URL` | `postgresql://stt_user:stt_password@localhost:5432/speech_to_text_db` | PostgreSQL connection string (`postgres://` auto-normalized to `postgresql://`) |
-| `WHISPER_MODEL` | `small` | Faster-Whisper model size (`small` baked in Docker; `medium` downloads on first start) |
+| `PORT` | `8001` | HTTP/WebSocket server port (local/Docker) |
+| `APP_PORT` | `7860` | Server port used by `app.py` on Hugging Face Spaces |
+| `DATABASE_URL` | `postgresql://stt_user:stt_password@localhost:5432/speech_to_text_db` | PostgreSQL URL (`postgres://` auto-normalized to `postgresql://`) |
+| `WHISPER_MODEL` | `small` | Faster-Whisper model size (`small` / `medium`) |
 | `WHISPER_DEVICE` | `cpu` | Inference device (`cpu`) |
 | `WHISPER_COMPUTE_TYPE` | `int8` | CTranslate2 compute precision (`int8`) |
-| `HF_HOME` | `D:\AI-Models\huggingface` | Hugging Face model cache directory (`/models/hf` in Docker) |
+| `HF_HOME` | `D:\AI-Models\huggingface` | Hugging Face model cache directory (`/tmp/hf` on HF Spaces, `/models/hf` in Docker) |
 | `MAX_UPLOAD_MB` | `25` | Maximum audio upload size in MB (1–200) |
 | `MAX_SESSION_SECONDS` | `600` | Maximum live WebSocket recording duration in seconds |
 | `MAX_CONCURRENT_SESSIONS` | `3` | Maximum simultaneous active WebSocket sessions |
@@ -105,92 +227,23 @@ Speech-to-Text/
 | `RATE_LIMIT_REQUESTS` | `120` | Max `/api/*` requests per client IP per window |
 | `RATE_LIMIT_WINDOW_SEC` | `60` | Rate-limiter sliding window in seconds |
 
-## Setup & Running
+---
 
-### 1. Environment Configuration
-Copy `.env.example` to `.env` and fill in your PostgreSQL credentials:
-```powershell
-Copy-Item .env.example .env
-```
+## Deployment Details
 
-### 2. Docker Compose (Recommended)
-```powershell
-docker compose up -d --build
-```
-- Web dashboard: `http://localhost:8001`
-- Swagger API docs: `http://localhost:8001/docs`
-- PostgreSQL 16 runs on `127.0.0.1:5432` (never publicly exposed) using persistent volume `speech_to_text_postgres_data`.
+The live application is hosted on **Hugging Face Spaces** (`https://bharathprashanth-speech-to-text.hf.space`) paired with **Neon** managed PostgreSQL:
 
-### 3. Native Windows Development
-```powershell
-py -3.11 -m venv D:\Projects\Speech-to-Text\.venv
-D:\Projects\Speech-to-Text\.venv\Scripts\Activate.ps1
-pip install -r requirements-dev.txt
-docker compose up -d db
-alembic upgrade head
-uvicorn app.main:app --host 0.0.0.0 --port 8001
-```
+- **Entrypoint (`app.py`)**: Wraps the FastAPI + WebSocket app (`app.main:app`) with Gradio (`gr.mount_gradio_app(fastapi_app, demo, path="/gradio", ssr_mode=False)`), runs Alembic migrations with retry logic for database cold starts, and serves via Uvicorn on port `7860` (`APP_PORT`).
+- **System Dependencies (`packages.txt`)**: Installs `ffmpeg` and `libgomp1` for audio decoding and Faster-Whisper/CTranslate2 execution.
+- **Memory & Cold-Start Notes**: Faster-Whisper `small` (`int8`) uses ~1.5–2.0 GB RAM under active inference, fitting within Hugging Face Spaces' 16 GB RAM tier. Free Spaces sleep after inactivity, which drops active WebSocket connections and introduces a cold-start delay on the next request.
+- **Docker Alternative**: A production `Dockerfile` (baking `small` model weights into `/models/hf`) and `deploy/huggingface/README.md` are also included for `sdk: docker` deployments.
 
-## API Endpoints
-| Method | Endpoint | Purpose |
-| :--- | :--- | :--- |
-| `GET` | `/` | Frontend dashboard |
-| `GET` | `/health` | Application & Faster-Whisper model status |
-| `GET` | `/health/db` | PostgreSQL connectivity check (`SELECT 1`) |
-| `POST` | `/api/transcribe` | Upload audio file, convert via FFmpeg, transcribe, save |
-| `POST` | `/api/transcriptions` | Create/save transcription (idempotent on `session_id`) |
-| `GET` | `/api/transcriptions` | Paginated search (`q`, `script_mix`, `language`, `page`, `page_size`) |
-| `GET` | `/api/transcriptions/{id}` | Get transcription by ID |
-| `PUT` | `/api/transcriptions/{id}` | Update transcription text (updates `script_mix` & `updated_at`) |
-| `DELETE` | `/api/transcriptions/{id}` | Delete transcription by ID |
-| `GET` | `/api/stats` | Live counts (`total`, `hindi`, `english`, `mixed`, `other`) |
-| `GET` | `/api/languages` | Supported languages & code-switching metadata |
-| `WS` | `/ws/transcribe` | Real-time 16 kHz mono PCM streaming |
+---
 
-## Hindi-English Code-Switching & Limitations
-- Whisper evaluates one dominant language per decoding window (`language=None`, `task="transcribe"`), guided by an initial Hinglish prompt: `"Hindi and English mixed. नमस्ते, hello, मैं ठीक हूँ, thank you."`
-- Mixed Hindi-English speech can produce all-Devanagari, all-Romanized, or mixed-script output depending on phrase dominance and model size (`small` vs `medium`).
-- `script_mix` is computed deterministically from Devanagari vs. Latin letter ratios in the actual saved transcript rather than trusting Whisper's single language tag alone.
+## Future Improvements
 
-## Testing
-```powershell
-# Fast suite (stubbed Whisper model, real PostgreSQL or SQLite test DB)
-pytest -m "not slow" -v
-
-# Slow real-audio tests (requires en.wav, hi.wav, hinglish.wav in tests/audio/)
-pytest -m slow -v -s
-```
-
-### Real-Audio Accuracy Tests (`tests/audio/`)
-Place real 16 kHz (or standard PCM) `.wav` recordings in `tests/audio/`:
-- `tests/audio/en.wav` — English speech sample
-- `tests/audio/hi.wav` — Hindi speech sample
-- `tests/audio/hinglish.wav` — Mixed Hindi-English speech sample
-
-### Measured Results (`small` vs `medium`)
-| Sample | Model | Detected Lang | `script_mix` | Latency (s) | WER / Notes |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `en.wav` | `small` | `[FILL: lang]` | `[FILL: mix]` | `[FILL: sec]` | `[FILL: transcript / WER notes]` |
-| `hi.wav` | `small` | `[FILL: lang]` | `[FILL: mix]` | `[FILL: sec]` | `[FILL: transcript / WER notes]` |
-| `hinglish.wav` | `small` | `[FILL: lang]` | `[FILL: mix]` | `[FILL: sec]` | `[FILL: transcript / WER notes]` |
-| `hinglish.wav` | `medium` | `[FILL: lang]` | `[FILL: mix]` | `[FILL: sec]` | `[FILL: transcript / WER notes]` |
-
-### Browser Microphone Manual Verification (Chrome / Edge)
-1. Open `http://localhost:8001` (or your HTTPS cloud URL) in Chrome or Edge.
-2. Confirm the header shows `App OK • Model (small): ready` and `DB: Connected`.
-3. Click **Start Recording** and grant microphone permission when prompted.
-4. Speak a sentence; verify `WS: Connected`, live partial updates appear, and the timer increments.
-5. Click **Stop Recording**; verify the final transcript appears, saves to PostgreSQL, and shows up in **Transcription History** and **Statistics**.
-
-## Cloud Deployment (Hugging Face Spaces + Neon PostgreSQL)
-- **Resource Fit**: Faster-Whisper `small` (`int8`) uses ~1.5–2.0 GB RAM under active inference. Hugging Face Spaces **CPU Basic (Free, 16 GB RAM, 2 vCPU)** meets this requirement without paid tiers (unlike 512 MB tiers).
-- **Database**: Pair with a free-tier managed PostgreSQL provider such as **Neon** (`sslmode=require`), configured via the `DATABASE_URL` Space Secret.
-- **Privacy Qualifier**: When deployed on Hugging Face Spaces, audio is processed on Hugging Face's container infrastructure (not your local machine); only the resulting transcript text and metadata are stored in Neon PostgreSQL.
-- **Configuration**: See `deploy/huggingface/README.md` for the required Space YAML frontmatter (`sdk: docker`, `app_port: 8001`) and environment variables.
-- **Known Free-Tier Limitation**: Free Hugging Face Spaces sleep after inactivity, which drops active WebSocket connections and causes a cold-start delay on the next request.
-
-## Troubleshooting
-- **Model still loading on startup**: Wait a few seconds and refresh `/health` until `model_status` transitions from `loading` to `ready`.
-- **Microphone button fails**: Browsers require `https://` or `http://localhost` for `navigator.mediaDevices.getUserMedia`.
-- **Database connection refused**: Ensure `docker compose up -d db` is running and `DATABASE_URL` matches `.env`.
-
+- **Speaker Diarization & Timestamps**: Add per-speaker segmentation and word-level timestamps in exported transcripts.
+- **Export Formats**: Support downloading transcriptions as `.txt`, `.srt`, `.vtt`, and `.json`.
+- **Hinglish Post-Processing**: Optional script normalization or transliteration toggle between Devanagari and Romanized Hindi.
+- **GPU Acceleration & Larger Models**: Enable CUDA/ZeroGPU inference profiles for `medium` or `large-v3` models to improve accuracy on noisy audio and heavy code-switching.
+- **Authentication & Multi-User Workspaces**: Add user accounts so personal transcription histories can be isolated across sessions.
