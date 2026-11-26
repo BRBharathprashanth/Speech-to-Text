@@ -101,6 +101,19 @@ print("[debug] function in decorated_cache:", _zerogpu_compatibility_check in de
 print("[debug] demo.fns after mount check:", list(demo.fns.keys()), flush=True)
 # END TEMP diagnostics
 
+# Additional diagnostics for demo.fns[0] structure
+if demo.fns:
+    print("[debug] demo.fns[0] type:", type(demo.fns[0]), flush=True)
+    print("[debug] demo.fns[0] repr:", repr(demo.fns[0]), flush=True)
+    fn_attr = getattr(demo.fns[0], "fn", None)
+    print("[debug] demo.fns[0].fn attribute:", fn_attr, flush=True)
+    print("[debug] type of demo.fns[0].fn:", type(fn_attr), flush=True)
+    if fn_attr is not None:
+        print("[debug] fn_attr has zerogpu attribute:", getattr(fn_attr, "zerogpu", None), flush=True)
+        print("[debug] fn_attr is _zerogpu_compatibility_check:", fn_attr is _zerogpu_compatibility_check, flush=True)
+        wrapper = decorated_cache.get(_zerogpu_compatibility_check)
+        print("[debug] fn_attr is cached wrapper:", fn_attr is wrapper, flush=True)
+
 app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
 
 print(
@@ -134,4 +147,56 @@ if __name__ == "__main__":
     print("[diagnostic] Alembic migrations completed", flush=True)
     port = int(os.environ.get("APP_PORT") or "7860")
     print(f"[diagnostic] starting Uvicorn on port {port}", flush=True)
+
+    # ── TEMP: pre-bind port diagnostics ──────────────────────────────────
+    # 1. Relevant environment variables
+    for _var in ("PORT", "APP_PORT", "GRADIO_SERVER_PORT", "GRADIO_SSR_MODE"):
+        print(f"[prebind] env {_var}={os.environ.get(_var, '<unset>')}", flush=True)
+
+    # 2. Current process identity
+    print(f"[prebind] PID={os.getpid()}", flush=True)
+    try:
+        with open(f"/proc/{os.getpid()}/cmdline", "rb") as _f:
+            _cmd = _f.read().replace(b"\x00", b" ").decode(errors="replace")
+        print(f"[prebind] cmdline={_cmd}", flush=True)
+    except Exception as _e:
+        print(f"[prebind] cmdline unavailable: {_e}", flush=True)
+
+    # 3. Listening TCP sockets (ss preferred; fallback to /proc/net/tcp and /proc/net/tcp6)
+    try:
+        _ss_result = subprocess.run(
+            ["ss", "-ltnp"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        print(f"[prebind] ss -ltnp returncode={_ss_result.returncode}", flush=True)
+        print(f"[prebind] ss -ltnp stdout:\n{_ss_result.stdout}", flush=True)
+        if _ss_result.stderr:
+            print(f"[prebind] ss -ltnp stderr:\n{_ss_result.stderr}", flush=True)
+    except Exception as _e:
+        print(f"[prebind] ss unavailable: {_e}", flush=True)
+    for _proc_path in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(_proc_path) as _f:
+                print(f"[prebind] {_proc_path}:\n{_f.read()}", flush=True)
+        except Exception as _e:
+            print(f"[prebind] {_proc_path} unavailable: {_e}", flush=True)
+
+    # 4. Full process list
+    try:
+        _ps_result = subprocess.run(
+            ["ps", "-ef"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        print(f"[prebind] ps -ef returncode={_ps_result.returncode}", flush=True)
+        print(f"[prebind] ps -ef stdout:\n{_ps_result.stdout}", flush=True)
+        if _ps_result.stderr:
+            print(f"[prebind] ps -ef stderr:\n{_ps_result.stderr}", flush=True)
+    except Exception as _e:
+        print(f"[prebind] ps unavailable: {_e}", flush=True)
+    # END TEMP pre-bind diagnostics
+
     uvicorn.run(app, host="0.0.0.0", port=port)
