@@ -114,7 +114,12 @@ if demo.fns:
         wrapper = decorated_cache.get(_zerogpu_compatibility_check)
         print("[debug] fn_attr is cached wrapper:", fn_attr is wrapper, flush=True)
 
-app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
+app = gr.mount_gradio_app(
+    fastapi_app,
+    demo,
+    path="/gradio",
+    ssr_mode=False,
+)
 
 print(
     f"[diagnostic] app.py loaded; __name__={__name__}",
