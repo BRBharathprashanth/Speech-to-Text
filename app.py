@@ -125,9 +125,44 @@ print(
 def _report_zerogpu_startup() -> None:
     """Explicitly report registered GPU handlers to Hugging Face ZeroGPU."""
     from spaces.zero import startup
+    from spaces.zero.decorator import decorated_cache
 
-    startup()
+    # ── TEMP: pre-startup ZeroGPU diagnostics ────────────────────────────
+    print(
+        "[zerogpu-diag] _zerogpu_compatibility_check has zerogpu attr:",
+        hasattr(_zerogpu_compatibility_check, "zerogpu"),
+        flush=True,
+    )
+    print(
+        "[zerogpu-diag] _zerogpu_compatibility_check in decorated_cache:",
+        _zerogpu_compatibility_check in decorated_cache,
+        flush=True,
+    )
+    print(
+        "[zerogpu-diag] decorated_cache contents:",
+        list(decorated_cache.keys()) if hasattr(decorated_cache, "keys") else repr(decorated_cache),
+        flush=True,
+    )
+    for _key, _val in demo.fns.items():
+        _fn = getattr(_val, "fn", None)
+        print(
+            f"[zerogpu-diag] demo.fns[{_key}]: fn={_fn}, "
+            f"is_callback={_fn is _zerogpu_compatibility_check}, "
+            f"has_zerogpu={hasattr(_fn, 'zerogpu')}",
+            flush=True,
+        )
+    # ── END pre-startup diagnostics ───────────────────────────────────────
+
+    _startup_result = startup()
     print("[zerogpu] startup report sent", flush=True)
+
+    # ── TEMP: post-startup ZeroGPU diagnostics ───────────────────────────
+    print(
+        "[zerogpu-diag] startup() return value:",
+        repr(_startup_result),
+        flush=True,
+    )
+    # ── END post-startup diagnostics ──────────────────────────────────────
 
 
 if __name__ == "__main__":
